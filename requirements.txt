@@ -1,0 +1,7 @@
+opencv-python
+ultralytics
+pandas
+pillow
+torch
+tk
+ttkbootstrap
