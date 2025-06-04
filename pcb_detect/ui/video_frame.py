@@ -32,6 +32,7 @@ class VideoFrame(ttk.LabelFrame):
         # Add more bindings for pan/zoom if needed
 
     def start_camera(self):
+        self.stop_camera()  # Always stop previous camera and thread
         if not self.camera.open():
             return False
         self.running = True
@@ -40,6 +41,7 @@ class VideoFrame(ttk.LabelFrame):
 
     def stop_camera(self):
         self.running = False
+        time.sleep(0.1)  # Give time for thread to exit
         self.camera.release()
         self.video_label.config(image=None)
         self.video_label.image = None

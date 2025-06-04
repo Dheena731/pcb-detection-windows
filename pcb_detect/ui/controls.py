@@ -116,7 +116,7 @@ class ControlsFrame(ttk.LabelFrame):
         # Try to find available cameras (0-4)
         available = []
         for idx in range(5):
-            cap = cv2.VideoCapture(idx)
+            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
             if cap.isOpened():
                 available.append(f"Camera {idx}")
                 cap.release()
@@ -257,8 +257,10 @@ class ControlsFrame(ttk.LabelFrame):
 
     def _on_camera_selected(self, event=None):
         cam_idx = self.camera_combo.current()
-        if hasattr(self.app.video_frame, 'camera'):
-            self.app.video_frame.camera.camera_index = cam_idx
-            self.app.video_frame.stop_camera()
-            self.app.video_frame.start_camera()
-        # Optionally, show a message or log event
+        # Stop current camera and thread before switching
+        self.app.video_frame.stop_camera()
+        self.app.video_frame.camera.camera_index = cam_idx
+        # Try to start new camera, show error if not available
+        if not self.app.video_frame.start_camera():
+            from pcb_detect.ui.dialogs import Dialogs
+            Dialogs.error("Camera Error", f"Camera {cam_idx} could not be opened.")
