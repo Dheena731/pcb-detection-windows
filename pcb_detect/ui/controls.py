@@ -111,6 +111,7 @@ class ControlsFrame(ttk.LabelFrame):
         self.stop_btn.config(command=self._on_stop)
         self.export_btn.config(command=self._on_export_snapshot)
         self.continue_btn.config(command=self._on_continue)
+        self.colors_btn.config(command=self._on_colors)
 
     def _get_camera_list(self):
         # Try to find available cameras (0-4)
@@ -179,14 +180,82 @@ class ControlsFrame(ttk.LabelFrame):
             self.board_combo.current(0)
 
     def _on_new_set(self):
-        name = Dialogs.ask_string("New Board Set", "Enter new board set name:")
-        if name:
-            if name in self.board_manager.sets:
+        # Open a single dialog for set name and component editing
+        editor = tk.Toplevel(self)
+        editor.title("Create New Board Set")
+        editor.geometry("420x400")
+        # Set name
+        tk.Label(editor, text="Set Name:").pack(anchor='w', padx=10, pady=(10,2))
+        set_name_var = tk.StringVar()
+        set_name_entry = tk.Entry(editor, textvariable=set_name_var, width=30)
+        set_name_entry.pack(anchor='w', padx=10, pady=(0,8))
+        # Table for components
+        columns = ("Component", "Quantity")
+        comp_tree = ttk.Treeview(editor, columns=columns, show="headings", height=8)
+        for col in columns:
+            comp_tree.heading(col, text=col)
+            comp_tree.column(col, width=150, anchor='center')
+        comp_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # Entry for component name and quantity
+        entry_frame = tk.Frame(editor)
+        entry_frame.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(entry_frame, text="Component:").pack(side=tk.LEFT)
+        comp_entry = tk.Entry(entry_frame, width=15)
+        comp_entry.pack(side=tk.LEFT, padx=2)
+        tk.Label(entry_frame, text="Qty:").pack(side=tk.LEFT)
+        qty_entry = tk.Entry(entry_frame, width=5)
+        qty_entry.pack(side=tk.LEFT, padx=2)
+        # Add/Update button
+        components = {}
+        def add_or_update():
+            comp = comp_entry.get().strip()
+            try:
+                qty = int(qty_entry.get())
+            except Exception:
+                Dialogs.error("Invalid Quantity", "Enter a valid integer quantity.")
+                return
+            if not comp or qty < 1:
+                Dialogs.error("Invalid Input", "Component name and quantity required.")
+                return
+            components[comp] = qty
+            refresh_table()
+            comp_entry.delete(0, tk.END)
+            qty_entry.delete(0, tk.END)
+        def refresh_table():
+            comp_tree.delete(*comp_tree.get_children())
+            for c, q in components.items():
+                comp_tree.insert('', tk.END, values=(c, q))
+        add_btn = tk.Button(editor, text="Add/Update Component", command=add_or_update)
+        add_btn.pack(pady=2)
+        # Delete button
+        def del_comp():
+            sel = comp_tree.selection()
+            if not sel:
+                return
+            comp = comp_tree.item(sel[0])['values'][0]
+            if comp in components:
+                del components[comp]
+                refresh_table()
+        del_btn = tk.Button(editor, text="Delete Selected Component", command=del_comp)
+        del_btn.pack(pady=2)
+        # Save button
+        def save_set():
+            set_name = set_name_var.get().strip()
+            if not set_name:
+                Dialogs.error("No Name", "Enter a set name.")
+                return
+            if not components:
+                Dialogs.error("No Components", "Add at least one component.")
+                return
+            if set_name in self.board_manager.sets:
                 Dialogs.error("Exists", "A set with this name already exists.")
                 return
-            self.board_manager.add_set(name, {})
+            self.board_manager.add_set(set_name, components)
             self._refresh_boards()
-            Dialogs.info("Set Created", f"Board set '{name}' created.")
+            Dialogs.info("Set Created", f"Board set '{set_name}' created.")
+            editor.destroy()
+        save_btn = tk.Button(editor, text="Save Set", command=save_set)
+        save_btn.pack(pady=5)
 
     def _on_edit_set(self):
         name = self.board_combo.get()
@@ -264,3 +333,38 @@ class ControlsFrame(ttk.LabelFrame):
         if not self.app.video_frame.start_camera():
             from pcb_detect.ui.dialogs import Dialogs
             Dialogs.error("Camera Error", f"Camera {cam_idx} could not be opened.")
+
+    def _on_colors(self):
+        # Allow user to assign custom colors to components
+        name = self.board_combo.get()
+        if not name or name not in self.board_manager.sets:
+            Dialogs.error("No Set Selected", "Please select a board set to assign colors.")
+            return
+        components = list(self.board_manager.sets[name].keys())
+        if not components:
+            Dialogs.error("No Components", "No components in this set.")
+            return
+        # Store colors in a dict (could be persisted in config if needed)
+        if not hasattr(self, 'component_colors'):
+            self.component_colors = {}
+        color_win = tk.Toplevel(self)
+        color_win.title(f"Assign Colors for {name}")
+        color_win.geometry("320x{}".format(60 + 40 * len(components)))
+        color_labels = {}
+        def pick_color(comp):
+            from tkinter import colorchooser
+            color = colorchooser.askcolor(title=f"Pick color for {comp}")[1]
+            if color:
+                self.component_colors[comp] = color
+                color_labels[comp].config(bg=color)
+        for idx, comp in enumerate(components):
+            frame = tk.Frame(color_win)
+            frame.pack(fill=tk.X, padx=10, pady=5)
+            tk.Label(frame, text=comp, width=15, anchor='w').pack(side=tk.LEFT)
+            color_labels[comp] = tk.Label(frame, width=4, bg=self.component_colors.get(comp, '#ff0000'))
+            color_labels[comp].pack(side=tk.LEFT, padx=5)
+            tk.Button(frame, text="Pick", command=lambda c=comp: pick_color(c)).pack(side=tk.LEFT)
+        def save_colors():
+            Dialogs.info("Colors Saved", "Component colors updated for this session.")
+            color_win.destroy()
+        tk.Button(color_win, text="Save Colors", command=save_colors).pack(pady=10)

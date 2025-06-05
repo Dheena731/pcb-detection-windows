@@ -1,11 +1,8 @@
 {
-  "Senior Board Front SMD": {
-    "Resistor": 3,
-    "Capacitor": 2,
-    "LED": 1
-  },
+  "Senior Board Front SMD": {},
   "Junior Board Back THT": {
     "Resistor": 2,
     "IC": 1
-  }
+  },
+  "test1": {}
 }
