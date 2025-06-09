@@ -1,0 +1,13 @@
+{
+  "1002-resistor": "#757a07",
+  "1201-resistor": "#6e6388",
+  "195-resistor": "#e230bd",
+  "221-resistor": "#d462db",
+  "Diode": "#dfadcd",
+  "LED": "#b001c2",
+  "ams1117 IC": "#5daa46",
+  "capacitor": "#786e30",
+  "esp 32": "#7a7113",
+  "resistor195": "#169db1",
+  "transistor": "#43096c"
+}

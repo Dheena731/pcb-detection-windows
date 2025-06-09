@@ -131,3 +131,21 @@ class VideoFrame(ttk.LabelFrame):
             draw.rectangle([x1, y1, x2, y2], outline='red', width=2)
             draw.text((x1, y1), f"{label} {conf:.2f}", fill='yellow')
         return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+    def draw_detections(self, frame, detections):
+        # Draw bounding boxes and labels using persistent colors
+        for det in detections:
+            x1, y1, x2, y2 = det['bbox']
+            label = det['class']
+            color = self.controls._get_color_for_class(label) if hasattr(self, 'controls') else (0,255,0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        return frame
+
+    def switch_camera(self, camera_index):
+        # Stop current camera feed
+        self.stop_camera()
+        # Set new camera index
+        self.camera = Camera(camera_index)
+        # Start camera feed
+        self.start_camera()

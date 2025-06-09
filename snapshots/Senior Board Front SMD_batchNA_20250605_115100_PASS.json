@@ -1,0 +1,11 @@
+{
+  "timestamp": "2025-06-05 11:51:00",
+  "board": "Senior Board Front SMD",
+  "batch": null,
+  "result": "PASS",
+  "missing": [],
+  "detected": {
+    "esp 32": 1
+  },
+  "expected": {}
+}

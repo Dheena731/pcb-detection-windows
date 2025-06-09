@@ -1,8 +1,12 @@
 {
-  "Senior Board Front SMD": {},
   "Junior Board Back THT": {
     "Resistor": 2,
     "IC": 1
   },
-  "test1": {}
+  "test1": {},
+  "ROBO front": {
+    "221-resistor": 1,
+    "LED": 2,
+    "1002-resistor": 1
+  }
 }

@@ -14,6 +14,9 @@ class PCBDetectApp:
         self.config_manager = ConfigManager()
         self._setup_ui()
         self._connect_ui()
+        # Start camera on launch
+        if hasattr(self, 'video_frame') and hasattr(self.video_frame, 'start_camera'):
+            self.video_frame.start_camera()
 
     def _setup_ui(self):
         # Controls (top)
