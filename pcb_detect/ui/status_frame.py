@@ -59,11 +59,19 @@ class StatusFrame(ttk.Frame):
     def update_results(self, results, expected=None):
         self.results_tree.delete(*self.results_tree.get_children())
         summary = {}
+        # Try to get class_names from the detector if available
+        class_names = None
+        if hasattr(self.app, 'controls') and hasattr(self.app.controls, 'detector') and getattr(self.app.controls.detector, 'model', None):
+            class_names = self.app.controls.detector.model.names if hasattr(self.app.controls.detector.model, 'names') else None
         if results and hasattr(results[0], 'boxes'):
             for box in results[0].boxes:
-                label = str(box.cls[0].item())
+                class_id = int(box.cls[0].item())
+                label = class_names[class_id] if class_names and class_id in class_names else str(class_id)
                 summary[label] = summary.get(label, 0) + 1
+        # Only show summary for components in expected (current set)
+        filtered_summary = summary
         if expected:
+            filtered_summary = {k: summary.get(k, 0) for k in expected.keys()}
             for comp, exp_count in expected.items():
                 detected = summary.get(comp, 0)
                 status = '✔' if detected == exp_count else '✘'
@@ -71,7 +79,7 @@ class StatusFrame(ttk.Frame):
                 self.results_tree.insert('', 'end', values=(status, comp, exp_count, detected), tags=(color,))
             self.results_tree.tag_configure('green', foreground='green')
             self.results_tree.tag_configure('red', foreground='red')
-        self.summary_label.config(text=f"Component Summary: {', '.join([f'{k}: {v}' for k, v in summary.items()])}")
+        self.summary_label.config(text=f"Component Summary: {', '.join([f'{k}: {v}' for k, v in filtered_summary.items()])}")
 
     def log_event(self, message):
         self.console_text.insert(tk.END, message + '\n')
@@ -84,3 +92,18 @@ class StatusFrame(ttk.Frame):
         lines = self.history_text.get('1.0', tk.END).splitlines()
         if len(lines) > 5:
             self.history_text.delete('1.0', f'{len(lines)-5}.0')
+    
+    def update_fps(self, fps):
+        self.fps_label.config(text=f"FPS: {fps:.2f}")
+
+    def update_mode(self, mode):
+        self.mode_label.config(text=f"Mode: {mode}")
+
+    def update_skipped(self, skipped):
+        self.skipped_label.config(text=f"Skipped Frames: {skipped}")
+
+    def update_batch(self, batch_name=None):
+        if batch_name:
+            self.batch_label.config(text=f"Current Batch: {batch_name}")
+        else:
+            self.batch_label.config(text="Current Batch: Default")

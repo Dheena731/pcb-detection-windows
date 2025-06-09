@@ -91,13 +91,20 @@ class ControlsFrame(ttk.LabelFrame):
         self.confidence_label = ttk.Label(self, text="Confidence:")
         self.confidence_slider = ttk.Scale(self, from_=0.1, to=1.0, orient=tk.HORIZONTAL)
         self.confidence_slider.set(0.5)
+        self.confidence_value_label = ttk.Label(self, text=f"{self.confidence_slider.get():.2f}")
         self.delay_label = ttk.Label(self, text="Delay (s):")
         self.delay_slider = ttk.Scale(self, from_=0.1, to=2.0, orient=tk.HORIZONTAL)
         self.delay_slider.set(0.5)
+        self.delay_value_label = ttk.Label(self, text=f"{self.delay_slider.get():.2f}")
         self.confidence_label.grid(row=3, column=0, padx=2, pady=2)
         self.confidence_slider.grid(row=3, column=1, padx=2, pady=2)
-        self.delay_label.grid(row=3, column=2, padx=2, pady=2)
-        self.delay_slider.grid(row=3, column=3, padx=2, pady=2)
+        self.confidence_value_label.grid(row=3, column=2, padx=2, pady=2, sticky='w')
+        self.delay_label.grid(row=3, column=3, padx=2, pady=2)
+        self.delay_slider.grid(row=3, column=4, padx=2, pady=2)
+        self.delay_value_label.grid(row=3, column=5, padx=2, pady=2, sticky='w')
+        # Update value labels when sliders move
+        self.confidence_slider.configure(command=lambda v: self.confidence_value_label.config(text=f"{float(v):.2f}"))
+        self.delay_slider.configure(command=lambda v: self.delay_value_label.config(text=f"{float(v):.2f}"))
         self._refresh_models()
         self.load_btn.config(command=self._on_load_model)
         self.upload_btn.config(command=self._on_upload_model)
@@ -464,6 +471,23 @@ class ControlsFrame(ttk.LabelFrame):
         random.seed(label)
         return tuple(random.randint(0,255) for _ in range(3))
 
+    def _draw_bounding_boxes(self, frame, boxes, class_names, allowed_components, color_map):
+        import cv2
+        detected_components = {}
+        filtered_boxes = []
+        for box in boxes:
+            x1, y1, x2, y2 = [int(float(v)) for v in box.xyxy[0]]
+            class_id = int(box.cls[0].item())
+            label = class_names[class_id] if class_names and class_id in class_names else str(class_id)
+            if label not in allowed_components:
+                continue
+            color = color_map[class_id] if class_id in color_map else (0,255,0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            detected_components[label] = detected_components.get(label, 0) + 1
+            filtered_boxes.append(box)
+        return detected_components, filtered_boxes
+
     def _on_capture(self):
         # PCB QA: Freeze, detect, overlay, auto-save, log, update UI, robust error handling
         import datetime
@@ -503,22 +527,16 @@ class ControlsFrame(ttk.LabelFrame):
         color_map = {}
         if class_names:
             for i in class_names:
-                random.seed(i)
-                color_map[i] = tuple([random.randint(0,255) for _ in range(3)])
+                label = class_names[i] if i in class_names else str(i)
+                if label in allowed_components:
+                    random.seed(i)
+                    color_map[i] = tuple([random.randint(0,255) for _ in range(3)])
         detected_components = {}
         filtered_boxes = []
         if results and hasattr(results[0], 'boxes'):
-            for box in results[0].boxes:
-                x1, y1, x2, y2 = [int(float(v)) for v in box.xyxy[0]]
-                class_id = int(box.cls[0].item())
-                label = class_names[class_id] if class_names and class_id in class_names else str(class_id)
-                if label not in allowed_components:
-                    continue  # Ignore components not in the set
-                color = color_map[class_id] if class_names and class_id in color_map else (0,255,0)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                detected_components[label] = detected_components.get(label, 0) + 1
-                filtered_boxes.append(box)
+            detected_components, filtered_boxes = self._draw_bounding_boxes(
+                frame, results[0].boxes, class_names, allowed_components, color_map
+            )
         # 4. Update video frame with overlay
         img = cv2_to_tk(frame)
         self.app.video_frame.video_label.config(image=img)
@@ -689,35 +707,109 @@ class ControlsFrame(ttk.LabelFrame):
         if hasattr(self.app, 'status_frame'):
             self.app.status_frame.log_event(f"[INFO] Switched to camera index {cam_idx}")
 
+    def _on_colors(self):
+        # Show only components in the selected board set for color assignment
+        import tkinter as tk
+        from tkinter import ttk, colorchooser
+        if not hasattr(self, '_component_colors'):
+            self._load_component_colors()
+        board_name = self.board_combo.get()
+        if not board_name or not hasattr(self, 'board_manager') or board_name not in self.board_manager.sets:
+            Dialogs.error("No Set Selected", "Please select a board set to assign colors.")
+            return
+        set_components = list(self.board_manager.sets[board_name].keys())
+        if not set_components:
+            Dialogs.error("No Components", "No components found in the selected set.")
+            return
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Component Colors for '{board_name}'")
+        dlg.geometry("420x400")
+        dlg.resizable(False, False)
+        # Scrollable frame
+        canvas = tk.Canvas(dlg, borderwidth=0, background="#f8f8f8", height=320)
+        frame = ttk.Frame(canvas)
+        vsb = ttk.Scrollbar(dlg, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.create_window((0,0), window=frame, anchor="nw")
+        def on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        frame.bind("<Configure>", on_frame_configure)
+        # Helper to get color hex
+        def get_color_hex(label):
+            c = self._component_colors.get(label, '#cccccc')
+            if isinstance(c, (list, tuple)):
+                return '#%02x%02x%02x' % tuple(int(x) for x in c)
+            return c if isinstance(c, str) and c.startswith('#') else '#cccccc'
+        # Store swatch widgets for update
+        swatches = {}
+        def update_swatch(label):
+            color = get_color_hex(label)
+            swatch = swatches[label]
+            swatch.delete('all')
+            swatch.create_rectangle(2, 2, 34, 22, fill=color, outline='#888')
+        # Add only set components to the frame
+        for i, comp in enumerate(set_components):
+            ttk.Label(frame, text=comp, width=22, anchor='w').grid(row=i, column=0, padx=8, pady=6, sticky='w')
+            swatch = tk.Canvas(frame, width=36, height=24, bd=1, relief='ridge')
+            swatch.grid(row=i, column=1, padx=4, pady=4)
+            swatches[comp] = swatch
+            update_swatch(comp)
+            def make_pick_color(label):
+                def pick_color():
+                    current = get_color_hex(label)
+                    color = colorchooser.askcolor(title=f"Pick color for {label}", color=current)[1]
+                    if color:
+                        self._component_colors[label] = color
+                        update_swatch(label)
+                return pick_color
+            pick_btn = ttk.Button(frame, text="Pick Color", command=make_pick_color(comp))
+            pick_btn.grid(row=i, column=2, padx=4, pady=4)
+        # Save and Cancel buttons
+        def save():
+            try:
+                with open(self._component_colors_path, 'w') as f:
+                    json.dump(self._component_colors, f, indent=2)
+                Dialogs.info("Colors Updated", "Component colors updated.")
+                self._load_component_colors()
+                dlg.destroy()
+            except Exception as e:
+                Dialogs.error("Save Error", f"Failed to save colors: {e}")
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(side='bottom', fill='x', pady=10)
+        ttk.Button(btn_frame, text="Save", command=save).pack(side='right', padx=12)
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(side='right')
+        dlg.grab_set()
+        dlg.transient(self)
+        dlg.focus_set()
+
     def _on_batches(self):
-        pass
+        # Placeholder: Show info dialog for batch processing
+        Dialogs.info("Batch Processing", "Batch processing features coming soon.")
 
     def _on_batch_toggle(self):
-        pass
+        # Log batch processing toggle state
+        state = self.batch_proc_var.get() if hasattr(self, 'batch_proc_var') else False
+        if hasattr(self.app, 'status_frame'):
+            self.app.status_frame.log_event(f"[INFO] Batch processing {'enabled' if state else 'disabled'}.")
 
-    def _on_capture(self):
-        pass
-
-    def _on_start_realtime(self):
-        pass
-
-    def _on_pause(self):
-        pass
-
-    def _on_stop(self):
-        pass
-
-    def _on_export_snapshot(self):
-        pass
-
-    def _on_continue(self):
-        pass
-
-    def _on_camera_selected(self, event=None):
-        pass
-
-    def _on_colors(self):
-        pass
+    def draw_boxes_on_frame(frame, boxes, class_names, allowed_components, color_map):
+        import cv2
+        detected_components = {}
+        filtered_boxes = []
+        for box in boxes:
+            x1, y1, x2, y2 = [int(float(v)) for v in box.xyxy[0]]
+            class_id = int(box.cls[0].item())
+            label = class_names[class_id] if class_names and class_id in class_names else str(class_id)
+            if label not in allowed_components:
+                continue
+            color = color_map[class_id] if class_id in color_map else (0,255,0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            detected_components[label] = detected_components.get(label, 0) + 1
+            filtered_boxes.append(box)
+        return detected_components, filtered_boxes
 
     def _load_component_colors(self):
         self._component_colors_path = os.path.join('config', 'component_colors.json')

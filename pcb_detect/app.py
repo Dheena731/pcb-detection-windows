@@ -41,11 +41,24 @@ class PCBDetectApp:
         # Get expected components from selected board
         board_name = self.controls.board_combo.get()
         expected = None
+        class_names = None
+        if hasattr(self.controls, 'detector') and getattr(self.controls.detector, 'model', None):
+            class_names = self.controls.detector.model.names if hasattr(self.controls.detector.model, 'names') else None
         if hasattr(self.controls, 'board_manager') and board_name in self.controls.board_manager.sets:
             expected = self.controls.board_manager.sets[board_name]
         self.status_frame.update_results(results, expected)
-        # Log event and add to history
-        summary = f"Detected: {', '.join([str(box.cls[0].item()) for box in results[0].boxes])}" if results and hasattr(results[0], 'boxes') else "No detections"
+        # Log event and add to history (filter to only allowed components)
+        allowed_components = set(expected.keys()) if expected else set()
+        if results and hasattr(results[0], 'boxes'):
+            names = []
+            for box in results[0].boxes:
+                class_id = int(box.cls[0].item())
+                label = class_names[class_id] if class_names and class_id in class_names else str(class_id)
+                if not allowed_components or label in allowed_components:
+                    names.append(label)
+            summary = f"Detected: {', '.join(names)}" if names else "No detections"
+        else:
+            summary = "No detections"
         self.status_frame.log_event(f"Detection run on board '{board_name}': {summary}")
         self.status_frame.add_history(summary)
 

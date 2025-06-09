@@ -425,8 +425,14 @@ def setup_component_dialog(parent, app, model_name, board_name, camera_name, boa
         setup_win.destroy()
         # Wait a moment to ensure camera is released before restarting main feed
         time.sleep(0.2)
-        if hasattr(app, 'video_frame') and hasattr(app.video_frame, 'start_camera'):
-            app.video_frame.start_camera()
+        # Ensure main window's video_frame is reset and camera is started
+        if hasattr(app, 'video_frame'):
+            if hasattr(app.video_frame, 'paused'):
+                app.video_frame.paused = False
+            if hasattr(app.video_frame, 'running'):
+                app.video_frame.running = False
+            if hasattr(app.video_frame, 'start_camera'):
+                app.video_frame.start_camera()
     setup_win.protocol("WM_DELETE_WINDOW", on_close)
 
     return setup_win

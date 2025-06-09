@@ -1,0 +1,18 @@
+{
+  "timestamp": "2025-06-09 12:55:08",
+  "board": "ROBO front",
+  "board_number": 2,
+  "batch": null,
+  "result": "FAIL",
+  "missing": [
+    "221-resistor (expected 1, found 0)",
+    "LED (expected 2, found 0)",
+    "1002-resistor (expected 1, found 0)"
+  ],
+  "detected": {},
+  "expected": {
+    "221-resistor": 1,
+    "LED": 2,
+    "1002-resistor": 1
+  }
+}
