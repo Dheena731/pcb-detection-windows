@@ -18,6 +18,10 @@ class ControlsFrame(ttk.LabelFrame):
     def __init__(self, parent, app):
         super().__init__(parent, text="Controls")
         self.app = app
+        # Ensure BatchManager is always available
+        if not hasattr(self, 'batch_manager'):
+            self.batch_manager = BatchManager()
+        self.current_batch = None
         self._load_component_colors()
         self._build()
 
@@ -87,6 +91,11 @@ class ControlsFrame(ttk.LabelFrame):
         self.batches_btn.grid(row=2, column=3, padx=2)
         self.auto_save_chk.grid(row=2, column=4, padx=2)
         self.batch_proc_chk.grid(row=2, column=5, padx=2)
+        # Batch Controls (Row 2)
+        self.start_batch_btn = ttk.Button(self, text="Start Batch", command=self._on_start_batch)
+        self.close_batch_btn = ttk.Button(self, text="Close Batch", command=self._on_close_batch)
+        self.start_batch_btn.grid(row=2, column=6, padx=2)
+        self.close_batch_btn.grid(row=2, column=7, padx=2)
         # Sliders (Row 3)
         self.confidence_label = ttk.Label(self, text="Confidence:")
         self.confidence_slider = ttk.Scale(self, from_=0.1, to=1.0, orient=tk.HORIZONTAL)
@@ -600,6 +609,19 @@ class ControlsFrame(ttk.LabelFrame):
                     'expected': expected
                 }, f, indent=2)
             self._last_json_path = results_fname  # Store for export
+            # --- BatchManager Excel export logic ---
+            if hasattr(self, 'batch_manager') and batch_name:
+                self.batch_manager.current_batch = batch_name
+                self.batch_manager.add_result({
+                    'timestamp': ts,
+                    'board': board_name,
+                    'board_number': board_number,
+                    'batch': batch_name,
+                    'result': pass_fail,
+                    'missing': missing,
+                    'detected': detected_components,
+                    'expected': expected
+                })
         except Exception as e:
             if hasattr(self.app, 'status_frame'):
                 self.app.status_frame.log_event(f"[ERROR] Failed to save detection results: {e}")
@@ -785,8 +807,137 @@ class ControlsFrame(ttk.LabelFrame):
         dlg.focus_set()
 
     def _on_batches(self):
-        # Placeholder: Show info dialog for batch processing
-        Dialogs.info("Batch Processing", "Batch processing features coming soon.")
+        import tkinter as tk
+        from tkinter import ttk, filedialog, messagebox, simpledialog
+        if not hasattr(self, 'batch_manager'):
+            self.batch_manager = BatchManager()
+        dlg = tk.Toplevel(self)
+        dlg.title("Batch Management")
+        dlg.geometry("350x480")
+        dlg.resizable(False, False)
+        # --- Layout frame ---
+        main_frame = ttk.Frame(dlg)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=10)
+        # --- Batch List as Table ---
+        ttk.Label(main_frame, text="Batches", font=("Segoe UI", 11, "bold")).pack(anchor='w', pady=(0, 4))
+        batch_columns = ("batch_name",)
+        batch_tree = ttk.Treeview(main_frame, columns=batch_columns, show="headings", height=18, selectmode="browse")
+        batch_tree.heading("batch_name", text="Batch Name")
+        batch_tree.column("batch_name", width=260, anchor='w')
+        batch_tree.pack(fill=tk.BOTH, expand=True)
+        # --- Helper to refresh batch list ---
+        def refresh_batches():
+            batch_tree.delete(*batch_tree.get_children())
+            for batch in self.batch_manager.batches.keys():
+                batch_tree.insert('', tk.END, values=(batch,))
+        refresh_batches()
+        # --- Batch selection event (optional, for future use) ---
+        def on_batch_select(event=None):
+            pass
+        batch_tree.bind('<<TreeviewSelect>>', on_batch_select)
+        # --- Set current batch ---
+        def set_active():
+            sel = batch_tree.selection()
+            if not sel:
+                messagebox.showinfo("No Selection", "Select a batch to activate.")
+                return
+            batch = batch_tree.item(sel[0])['values'][0]
+            self.batch_manager.current_batch = batch
+            self.current_batch = batch
+            if hasattr(self.app, 'status_frame'):
+                self.app.status_frame.update_batch(batch)
+            messagebox.showinfo("Batch Activated", f"Batch '{batch}' is now active.")
+        # --- Export batch ---
+        def export_batch():
+            sel = batch_tree.selection()
+            if not sel:
+                messagebox.showinfo("No Selection", "Select a batch to export.")
+                return
+            batch = batch_tree.item(sel[0])['values'][0]
+            export_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx"), ("JSON Files", "*.json")])
+            if not export_path:
+                return
+            if export_path.endswith('.xlsx'):
+                excel_path = self.batch_manager.get_excel_path(batch)
+                if os.path.exists(excel_path):
+                    import shutil
+                    shutil.copy2(excel_path, export_path)
+                    messagebox.showinfo("Exported", f"Batch exported to {export_path}")
+                else:
+                    messagebox.showerror("Not Found", "No Excel file found for this batch.")
+            elif export_path.endswith('.json'):
+                self.batch_manager.export_batch(batch, export_path)
+                messagebox.showinfo("Exported", f"Batch exported to {export_path}")
+        # --- Add new batch ---
+        def add_batch():
+            now = datetime.datetime.now()
+            default_name = now.strftime("Batch_%d%m%Y")
+            name = simpledialog.askstring("New Batch", "Enter batch name:", initialvalue=default_name)
+            if not name:
+                return
+            if name in self.batch_manager.batches:
+                messagebox.showerror("Exists", "A batch with this name already exists.")
+                return
+            self.batch_manager.create_batch(name)
+            refresh_batches()
+        # --- Delete batch ---
+        def delete_batch():
+            sel = batch_tree.selection()
+            if not sel:
+                messagebox.showinfo("No Selection", "Select a batch to delete.")
+                return
+            batch = batch_tree.item(sel[0])['values'][0]
+            if batch == 'Default':
+                messagebox.showerror("Cannot Delete", "Cannot delete the Default batch.")
+                return
+            if messagebox.askyesno("Delete Batch", f"Are you sure you want to delete '{batch}'?"):
+                self.batch_manager.delete_batch(batch)
+                refresh_batches()
+        # --- Rename batch ---
+        def rename_batch():
+            sel = batch_tree.selection()
+            if not sel:
+                messagebox.showinfo("No Selection", "Select a batch to rename.")
+                return
+            old_name = batch_tree.item(sel[0])['values'][0]
+            new_name = simpledialog.askstring("Rename Batch", "Enter new batch name:", initialvalue=old_name)
+            if not new_name or new_name == old_name:
+                return
+            if new_name in self.batch_manager.batches:
+                messagebox.showerror("Exists", "A batch with this name already exists.")
+                return
+            self.batch_manager.batches[new_name] = self.batch_manager.batches.pop(old_name)
+            old_excel = self.batch_manager.get_excel_path(old_name)
+            new_excel = self.batch_manager.get_excel_path(new_name)
+            if os.path.exists(old_excel):
+                import shutil
+                shutil.move(old_excel, new_excel)
+            if self.batch_manager.current_batch == old_name:
+                self.batch_manager.current_batch = new_name
+                self.current_batch = new_name
+                if hasattr(self.app, 'status_frame'):
+                    self.app.status_frame.update_batch(new_name)
+            self.batch_manager.save()
+            refresh_batches()
+        # --- Buttons ---
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(fill=tk.X, pady=8, side=tk.BOTTOM)
+        ttk.Button(btn_frame, text="Add Batch", command=add_batch).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Delete Batch", command=delete_batch).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Rename Batch", command=rename_batch).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Set Active", command=set_active).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Export", command=export_batch).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="Close", command=dlg.destroy).pack(side=tk.RIGHT, padx=8)
+        # --- Initial selection ---
+        if self.batch_manager.current_batch in self.batch_manager.batches:
+            idx = list(self.batch_manager.batches.keys()).index(self.batch_manager.current_batch)
+            children = batch_tree.get_children()
+            if idx < len(children):
+                batch_tree.selection_set(children[idx])
+                batch_tree.focus(children[idx])
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.focus_set()
 
     def _on_batch_toggle(self):
         # Log batch processing toggle state
@@ -821,3 +972,28 @@ class ControlsFrame(ttk.LabelFrame):
                 self._component_colors = json.load(f)
         except Exception:
             self._component_colors = {}
+
+    def _on_start_batch(self):
+        from tkinter import simpledialog
+        batch_name = simpledialog.askstring("Start Batch", "Enter batch name:")
+        if not batch_name:
+            return
+        if not hasattr(self, 'batch_manager'):
+            self.batch_manager = BatchManager()
+        self.batch_manager.create_batch(batch_name)
+        self.current_batch = batch_name
+        if hasattr(self.app, 'status_frame'):
+            self.app.status_frame.update_batch(batch_name)
+        Dialogs.info("Batch Started", f"Batch '{batch_name}' started.")
+
+    def _on_close_batch(self):
+        if not hasattr(self, 'batch_manager') or not getattr(self, 'current_batch', None):
+            Dialogs.error("No Batch", "No batch is currently active.")
+            return
+        batch_name = self.current_batch
+        self.batch_manager.current_batch = batch_name
+        # Optionally mark as closed or just clear
+        self.current_batch = None
+        if hasattr(self.app, 'status_frame'):
+            self.app.status_frame.update_batch(None)
+        Dialogs.info("Batch Closed", f"Batch '{batch_name}' closed.")
